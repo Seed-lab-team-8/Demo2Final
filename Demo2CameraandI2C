@@ -1,0 +1,182 @@
+#SEED LAB Group 8
+#Stuart Clarke
+#Demo 2
+#Spring 2021
+
+#Some code referenced/adapted from:
+#https://docs.opencv.org/master/d5/dae/tutorial_aruco_detection.html
+#https://www.philipzucker.com/aruco-in-opencv/
+#https://longervision.github.io/2017/03/10/ComputerVision/OpenCV/opencv-external-posture-estimation-ArUco-single-marker/
+#https://www.pyimagesearch.com/2015/01/19/find-distance-camera-objectmarker-using-python-opencv/
+#https://gist.github.com/horverno/978559e4e3d3cf04ae3dd56ae3d577ec
+#https://www.programmersought.com/article/87636964230/
+
+
+#Load the required libraries for aruco marker detection and camera use
+import time
+import numpy as np
+import cv2
+import cv2.aruco as aruco
+import math
+import time
+import board
+import busio
+import smbus
+import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
+
+from picamera import PiCamera
+from time import sleep
+from picamera.array import PiRGBArray
+import os
+from PIL import Image
+
+#set up LCD screen
+lcd_columns = 16
+lcd_rows = 2
+i2c = busio.I2C(board.SCL, board.SDA)
+lcd = character_lcd.Character_LCD_RGB_I2C(i2c, lcd_columns, lcd_rows)
+lcd.clear()
+bus = smbus.SMBus(1)
+address = 0x04
+
+#Camera and Position Estimation:
+camera_matrix = np.array([[1., 0., 1.], [0., 1., 1.], [0., 0., 1.]])
+dist_co = np.array([0., 0., 0., 0., 0.])
+#camera_matrix = np.array([[2.6822003708394282e+03, 0., 1.5588865381021240e+03], [0., 2.6741978758743703e+03, 1.2303469240154550e+03], [0., 0., 1.]])
+#dist_co = np.array([2.0426196677407879e-01, -3.3902097431574091e-01, -4.1813964792274307e-03, -1.0425257413809015e-02, 8.2004709580884308e-02])
+
+FOV = 54
+TOffset = 6
+CALIBRATION_CONSTANT = 5.33
+WITHIN_1_FOOT = False
+MARKER_DETECTED = False
+
+#Distance from camera to aruco marker calculation. The tvec z axis distance is calibrated and returned as the distance from the camera to the aruco marker.
+#Make sure the camera is calibrated properly and that the correct values are used for camera parameters. The calibration constant, the 100 scaling factor and the 5cm aruco marker width can be changed to alter your results.
+def find_distance(corners):
+    rvec, tvec,_ = aruco.estimatePoseSingleMarkers(corners, 5, camera_matrix, dist_co)  #5cm for aruco marker width
+    return (tvec[0][0][2] * 100 * CALIBRATION_CONSTANT)    #Takes the first z axis element from the position estimation matrices (z axis is outward toward camera from aruco marker per RHR)
+
+#This function takes the corners found using the detect markers fucntion and using the top left and bottom right pixel corner coordinates, it finds the coordinates of the center
+def findCenter(corners): # Get the center of the aruco image in x,y pixel coordinates by taking half the difference between the top left and bottom right pixel of the marker and adding that to the top left coordinate (bottom corner (lowest) with respect to (x,y) coordinates starting from top left of image at (0,0))
+    return( (abs(((corners[0][0][2][0] - corners[0][0][0][0]))/2) + corners[0][0][0][0]),
+            (abs(((corners[0][0][2][1] - corners[0][0][0][1]))/2) + corners[0][0][0][1]) )
+
+
+            
+#Main program
+def main():
+    
+    print ("First calibrate the camera. Then run this program to find any 6 by 6 aruco markers in the camera field of view and then calculate and display the distance from the camera lens to the aruco marker in centimeters (cm).")
+    print("The program also finds and displays the angle from the camera to the aruco marker centerpoint (from z axis outward from lens to camera target object to the center of the aruco marker.")
+    #print("Press a key to continue.")
+    #cv2.waitKey(0)
+
+    #This initializes the video capture function and video camera using the cv2 library
+    cap = cv2.VideoCapture(0)
+
+    #This sets the frame rate to 10 fps which helped get the camera to run more smoothly (although the camera supposedley only runs 30 or 60)
+    cap.set(cv2.CAP_PROP_FPS,10)
+
+    #This sets up and starts a while loop that runs infinitely and captures a frame from the video camera and turns it to a grayscale image. Then the aruco marker detection function is run
+    #And corners are found and used to calculate the center of the aruco marker relative to the screen. 
+    
+    #infinite loop
+    while(True):
+        
+    # Aruco Detection
+        #ret, frame = cap.read()
+        _, frame = cap.read()
+        h, w, c = frame.shape    #setup camera window
+        ref = w/2    #center of frame
+        
+        #Loading data about frame heigth and width, converting image to grayscale and loading the aruco library
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
+        parameters =  aruco.DetectorParameters_create()
+        corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+        
+        if corners: # if a marker is detected
+                
+                #Distance Calulations
+                MARKER_DETECTED = True
+                distance = find_distance(corners)
+                distance = float(np.round(distance, 3))
+                distDisp = "Aruco marker is: " + str(distance) + " cm from the Pi camera."
+                #cv2.putText(frame, str(distance), org = (0, 500), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color = (0, 255, 255))
+                cv2.putText(frame, distDisp, org = (0, 400), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.8, color = (255, 255, 0))
+                status = "Found a marker!"
+                if(distance > 2 and distance < 30.5):    #About 30.5cm in a foot. Range of 2cm to 30.5cm chosen for within 1 foot.
+                    WITHIN_1_FOOT = True
+                else:
+                    WITHIN_1_FOOT = False
+                
+                bus.write_byte_data(address, 0, distance)
+                print ("RPI: Hi Arduino, I sent you ", distance)
+                #Read from Arduino
+                #number = bus.read_byte_data(address, 0)
+                #print ("Arduino: Hey RPI, I received a digit ", number)
+                #print ("RPI: Hi Arduino, I sent you ", pos)
+                #lcd.color = [0, 100, 0]
+                #lcd.text_direction = lcd.LEFT_TO_RIGHT
+                #Print values on the LCD
+                #lcd.message = str(pos) + ' ' +str(number)
+                
+                
+                #Angle Detection
+                frame = aruco.drawDetectedMarkers(frame, corners, ids)
+                rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, 5, camera_matrix, None)     #Check me!! length?
+                aruco.drawAxis(frame, camera_matrix, None, rvec, tvec, length=5)                               #Check me!!! length?
+                center = findCenter(corners)
+                if(center[0] > ref):
+                    angle = abs((center[0] - ref)) * (((FOV+TOffset)/2)/(ref))
+                    angle = float(np.round(angle, 2))
+                    angDisp = "Angle is -" + str(angle)
+                if(center[0] < ref):
+                    angle = abs((ref - center[0])) * (((FOV+TOffset)/2)/(ref))
+                    angle = float(np.round(angle, 2))
+                    angDisp = "Angle is +" + str(angle)
+                
+                bus.write_byte_data(address, 0, angle )
+                print ("RPI: Hi Arduino, I sent you ", angle)
+                
+                #angle = abs(ref-center[0])*((THETA/2)/ref)
+                
+                cv2.putText(frame, angDisp, org = (0, 375), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.8, color = (255, 255, 0))
+              
+                cv2.imshow('frame',frame)
+                #cv2.waitKey(0)
+            
+            
+        #This will help with determining the angle and position of aruco markers in future demos
+        #rvec, tvec,_ = aruco.estimatePoseSingleMarkers(corners, 0.05, camera_matrix, dist_co)
+
+        # When no marker is found
+        if(not corners):
+            status = "No aruco markers found"
+            MARKER_DETECTED = False
+
+        else:
+            status = "Found an aruco marker!"
+            if (WITHIN_1_FOOT == True):
+                status = "Aruco marker is within 1 foot of camera."
+        cv2.putText(frame, status, org = (0, 350), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.8, color = (0, 255, 0))
+        #Draws the corners and id of the detected markers on the image and display the image on the Pi screen
+        frame = aruco.drawDetectedMarkers(frame, corners, ids)
+        cv2.imshow('frame',frame)
+
+        #Wait for a key press and then break if escape is pressed. The commented our print statement prints the frame size for the live videocapture and was used for debugging
+        k = cv2.waitKey(1)
+        if k == 27: break
+            #print(h,w)
+
+    #Waits for a key press and then kills all active windows after finding one
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()   
+
+    #Release the video camera (turn off) and detsroy all open windows on the raspberry Pi.
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    
+main()             #Runs program

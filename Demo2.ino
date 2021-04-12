@@ -1,0 +1,183 @@
+#include <Wire.h>
+#include <Encoder.h>
+
+#define SLAVE_ADDRESS 0x04
+byte data[32];
+
+void forward(int dist);
+void turn(int angle);
+void circle();
+
+////////////////////MOTOR DRIVER PINS/////////////////////////
+//Left Wheel Encoder
+#define L_CHAN_A 3              //encoder channel a
+#define L_CHAN_B 6              //encoder channel b
+//Right Wheel Encoder
+#define R_CHAN_A 2              //encoder channel a
+#define R_CHAN_B 5              //encoder channel b
+//Enable Pin
+#define ENABLE 4 
+//Right Control
+#define R_DRIVE 9 
+#define R_DIR 7
+//Left Control          
+#define L_DRIVE 10
+#define L_DIR 8
+//Encoders, See Encoder.h for ref
+Encoder leftEncoder(L_CHAN_A, L_CHAN_B);
+Encoder rightEncoder(R_CHAN_A, R_CHAN_B);
+
+
+//////////////////Speed and Control Globals////////////////////
+const double BASE_SPEED = 150;
+const double MIN_SPEED = 70;
+uint8_t LDutyCycle;                 //8-bit PWM duty   
+uint8_t RDutyCycle;                 //8-bit PWM duty   
+double currentPositionR = 0; //position in feet
+double currentPositionL = 0;
+double finalPositionR = 0; //destination in feet
+double finalPositionL = 0;
+double delta = .01; //acceptable variation in arrival point
+double gamma = .5; //slow down point 6in from target
+int beta = 50; //catchup adjustment threshold
+bool movementEnabled = false;
+const double WHEEL_RADIUS = .164;
+int distanceDetected, angleDirection;
+double distanceConverted, angleConverted;
+long int angle, angleDetected;
+long int turningAngle;
+
+void setup() {
+  Serial.begin(115200);
+  //////////////////Pin setup//////////////////
+  pinMode(ENABLE, OUTPUT);                  //MUST BE SET HIGH to enable driver board
+  pinMode(L_DRIVE, OUTPUT);          
+  pinMode(L_DIR, OUTPUT);
+  pinMode(R_DRIVE, OUTPUT);          
+  pinMode(R_DIR, OUTPUT);
+  digitalWrite(ENABLE, HIGH); //Enable driver board
+  leftEncoder.write(0);
+  rightEncoder.write(0);
+  analogWrite(L_DRIVE, 0);
+  analogWrite(R_DRIVE, 0);
+  delay(1000); //delay 10sec to let you place the robot on track
+  Serial.println("Starting");
+  leftEncoder.write(0); //reset the encoders
+  rightEncoder.write(0);
+  movementEnabled = true;
+
+  //i2c setup
+  pinMode(13, OUTPUT);
+  Serial.begin(115200); // start serial for output
+  // initialize i2c as slave
+  Wire.begin(SLAVE_ADDRESS);
+
+  // define callbacks for i2c communication
+  Wire.onReceive(receiveData);
+  Wire.onRequest(sendData);
+}
+
+void loop() {
+data[1] = 0;
+
+//detect marker
+while(data[1] == 0){
+  turn(10,1);
+}
+
+
+angleDetected = data[1];
+angleConverted = angle/100;
+distanceDetected = data[2];
+distanceConverted = (double)distanceDetected/1000-1;
+angleDirection = data[3];  
+
+  if(movementEnabled){
+    turn(angleConverted, 1); //1 indicates direction
+    delay(1000);
+    forward(distanceConverted);
+    delay(1000);
+    turn(90, 0);
+    delay(1000);
+    circle();
+    delay(1000);
+    movementEnabled = false;
+  }
+}
+
+void forward(int dist){   
+  finalPositionR = dist;
+  finalPositionL = dist;  
+  digitalWrite(L_DIR, LOW); //L-H is forward
+  digitalWrite(R_DIR, HIGH);
+  while(finalPositionR-currentPositionR > delta){
+    Serial.println(currentPositionR);
+    currentPositionR = (rightEncoder.read()/3200.0)*2*3.14*WHEEL_RADIUS*1.51;
+    currentPositionL = (leftEncoder.read()/3215.0)*2*3.14*WHEEL_RADIUS*1.51;
+    LDutyCycle = BASE_SPEED+2;
+    RDutyCycle = BASE_SPEED;
+      double drift = currentPositionR-currentPositionL;
+      if(abs(drift) > .005){
+        LDutyCycle+= drift*10;
+        RDutyCycle+= -1.0*drift*10;
+      }
+    analogWrite(L_DRIVE, LDutyCycle); //actually write the motors
+    analogWrite(R_DRIVE, RDutyCycle);
+  }
+  analogWrite(L_DRIVE, 0);
+  analogWrite(R_DRIVE, 0);
+  rightEncoder.write(0);
+  leftEncoder.write(0);
+  currentPositionR = 0;
+  currentPositionL = 0;
+}
+void turn(int dest, bool dir){
+  angle = 0;
+  turningAngle = dest*10*2;
+  if(dir){
+    digitalWrite(L_DIR, HIGH); //L-H is forward
+    digitalWrite(R_DIR, HIGH);
+  }else{
+    digitalWrite(L_DIR, LOW); //L-H is forward
+    digitalWrite(R_DIR, LOW);
+  }
+  while(angle < turningAngle){
+     //Serial.println("Turning");
+     analogWrite(L_DRIVE, 90);
+     analogWrite(R_DRIVE, 90);
+     angle=abs(rightEncoder.read());
+     Serial.println(angle);
+    }
+    analogWrite(L_DRIVE, 0);
+    analogWrite(R_DRIVE, 0);
+    rightEncoder.write(0);
+    leftEncoder.write(0);
+    currentPositionR = 0;
+    currentPositionL = 0;
+}
+void circle(){
+   digitalWrite(L_DIR, LOW); //L-H is forward
+   digitalWrite(R_DIR, HIGH);
+   while(rightEncoder.read()<29350){
+     analogWrite(L_DRIVE, 200*.55); //actually write the motors
+     analogWrite(R_DRIVE, 200);
+   }
+    analogWrite(L_DRIVE, 0);
+    analogWrite(R_DRIVE, 0);
+    rightEncoder.write(0);
+    leftEncoder.write(0);
+}
+
+// callback for received data
+void receiveData(int byteCount) { 
+  int i=0;
+  while (Wire.available()) {
+    data[i] = Wire.read();
+    i++;
+  }
+}
+
+
+void sendData() {
+    Wire.write(data[1] +5);
+}

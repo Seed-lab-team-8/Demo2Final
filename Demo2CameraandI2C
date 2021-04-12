@@ -19,10 +19,13 @@ import cv2
 import cv2.aruco as aruco
 import math
 import time
+import sys
+import math
 import board
 import busio
 import smbus
 import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
+
 
 from picamera import PiCamera
 from time import sleep
@@ -30,14 +33,7 @@ from picamera.array import PiRGBArray
 import os
 from PIL import Image
 
-#set up LCD screen
-lcd_columns = 16
-lcd_rows = 2
-i2c = busio.I2C(board.SCL, board.SDA)
-lcd = character_lcd.Character_LCD_RGB_I2C(i2c, lcd_columns, lcd_rows)
-lcd.clear()
-bus = smbus.SMBus(1)
-address = 0x04
+values=[0,0,0,0,0,0,0,0,0,0,0,0]
 
 #Camera and Position Estimation:
 camera_matrix = np.array([[1., 0., 1.], [0., 1., 1.], [0., 0., 1.]])
@@ -50,6 +46,16 @@ TOffset = 6
 CALIBRATION_CONSTANT = 5.33
 WITHIN_1_FOOT = False
 MARKER_DETECTED = False
+
+#set up LCD screen
+lcd_columns = 16
+lcd_rows = 2
+i2c = busio.I2C(board.SCL, board.SDA)
+lcd = character_lcd.Character_LCD_RGB_I2C(i2c, lcd_columns, lcd_rows)
+lcd.clear()
+bus = smbus.SMBus(1)
+address = 0x04
+
 
 #Distance from camera to aruco marker calculation. The tvec z axis distance is calibrated and returned as the distance from the camera to the aruco marker.
 #Make sure the camera is calibrated properly and that the correct values are used for camera parameters. The calibration constant, the 100 scaling factor and the 5cm aruco marker width can be changed to alter your results.
@@ -110,19 +116,16 @@ def main():
                     WITHIN_1_FOOT = True
                 else:
                     WITHIN_1_FOOT = False
+                distance1=distance/30.48
+                distance1=distance1*10
+                distance1= int (distance1 //1)
+                values[0]=distance1
                 
-                bus.write_byte_data(address, 0, distance)
-                print ("RPI: Hi Arduino, I sent you ", distance)
-                #Read from Arduino
-                #number = bus.read_byte_data(address, 0)
-                #print ("Arduino: Hey RPI, I received a digit ", number)
-                #print ("RPI: Hi Arduino, I sent you ", pos)
-                #lcd.color = [0, 100, 0]
-                #lcd.text_direction = lcd.LEFT_TO_RIGHT
-                #Print values on the LCD
-                #lcd.message = str(pos) + ' ' +str(number)
+
+                bus.write_byte_data(address, 0, distance1)
+                print ("RPI: Hi Arduino, I sent you ", distance1)
                 
-                
+                  
                 #Angle Detection
                 frame = aruco.drawDetectedMarkers(frame, corners, ids)
                 rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, 5, camera_matrix, None)     #Check me!! length?
@@ -132,13 +135,27 @@ def main():
                     angle = abs((center[0] - ref)) * (((FOV+TOffset)/2)/(ref))
                     angle = float(np.round(angle, 2))
                     angDisp = "Angle is -" + str(angle)
+                    values[2]=0
                 if(center[0] < ref):
                     angle = abs((ref - center[0])) * (((FOV+TOffset)/2)/(ref))
                     angle = float(np.round(angle, 2))
                     angDisp = "Angle is +" + str(angle)
+                    values[2]=1
+
+                bus.write_byte_data(address, 0, values[2])
+                print ("RPI: Hi Arduino, I sent you ", values[2])
+               
                 
-                bus.write_byte_data(address, 0, angle )
-                print ("RPI: Hi Arduino, I sent you ", angle)
+                angle1 =angle*10
+                angle1= int (angle1 //1)
+                values[1]=angle1
+
+                bus.write_byte_data(address, 0, angle1)
+                print ("RPI: Hi Arduino, I sent you ", angle1)
+               
+                  
+                #bus.write_block_data(address, 0, values)
+
                 
                 #angle = abs(ref-center[0])*((THETA/2)/ref)
                 

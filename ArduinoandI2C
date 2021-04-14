@@ -1,3 +1,18 @@
+/*
+Demo 2 arduino code
+
+Part 1:
+Detect aruco marker and move to within 1 foot
+To do: comment out extra turning and circling code
+
+Part 2:
+Rotate until aruco marker is found, detect angle, move angle, move to within 1 foot, circle aruco marker
+To do: execute code as written
+
+IMPORTANT: camera ribbon has been easily detaching, if problems encountered, check this first 
+IMPORTANT: encoder library also has to be downloaded on computer 
+*/
+
 #include <Wire.h>
 #include <Encoder.h>
 
@@ -97,8 +112,12 @@ distanceConverted = (double)distanceDetected/10-1;
   if(movementEnabled){
     turn(angleConverted, 1); //1 indicates direction
     delay(1000);
+    
+    //this is the code that executes part one
     forward(distanceConverted);
     delay(1000);
+    //this is the end of the code that executes part 1
+    
     turn(90, 0);
     delay(1000);
     circle();

@@ -175,6 +175,7 @@ void circle(){
 }
 
 // callback for received data
+//Receive data from PI
 void receiveData(int byteCount) { 
   while (Wire.available()) {
     trash=Wire.read();

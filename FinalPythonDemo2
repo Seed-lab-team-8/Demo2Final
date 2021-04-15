@@ -121,7 +121,7 @@ def main():
                 distance1= int (distance1 //1)
                 values[0]=distance1
                 
-
+                #send distance
                 bus.write_byte_data(address, 0, distance1)
                 print ("RPI: Hi Arduino, I sent you ", distance1)
                 
@@ -141,7 +141,7 @@ def main():
                     angle = float(np.round(angle, 2))
                     angDisp = "Angle is +" + str(angle)
                     values[2]=1
-
+                #send direction of angle ccw or cw
                 bus.write_byte_data(address, 0, values[2])
                 print ("RPI: Hi Arduino, I sent you ", values[2])
                
@@ -149,12 +149,11 @@ def main():
                 angle1 =angle*10
                 angle1= int (angle1 //1)
                 values[1]=angle1
-
+                #send angle between robot and marker
                 bus.write_byte_data(address, 0, angle1)
                 print ("RPI: Hi Arduino, I sent you ", angle1)
                
                   
-                #bus.write_block_data(address, 0, values)
 
                 
                 #angle = abs(ref-center[0])*((THETA/2)/ref)
